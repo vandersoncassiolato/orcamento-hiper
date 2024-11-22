@@ -1,10 +1,9 @@
 import streamlit as st
-import pytesseract
-from PIL import Image
 import pandas as pd
-import openpyxl
 import io
-import os
+import base64
+from openai import OpenAI
+from PIL import Image
 
 # Configuração da página
 st.set_page_config(
@@ -13,54 +12,77 @@ st.set_page_config(
     layout="wide"
 )
 
-# Configuração inicial do Streamlit
-if 'dados_extraidos' not in st.session_state:
-    st.session_state.dados_extraidos = None
+# Configuração do OpenAI
+def init_openai():
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    return client
 
-def processar_imagem(imagem):
+def processar_imagem_com_openai(client, imagem):
     """
-    Extrai texto da imagem e estrutura os dados
+    Usa a API da OpenAI para extrair texto da imagem
     """
     try:
-        # Converte imagem para texto
-        texto = pytesseract.image_to_string(Image.open(imagem), lang='por')
+        # Converte a imagem para base64
+        image = Image.open(imagem)
+        buffered = io.BytesIO()
+        image.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+
+        response = client.chat.completions.create(
+            model="gpt-4-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Esta é uma lista de itens com quantidades. Por favor, extraia para cada linha: a quantidade e a descrição do item. Retorne em formato estruturado."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": f"data:image/png;base64,{img_str}"
+                        }
+                    ]
+                }
+            ],
+            max_tokens=1000
+        )
+
+        # Processa a resposta da API
+        texto_extraido = response.choices[0].message.content
+        return estruturar_dados(texto_extraido)
+
+    except Exception as e:
+        st.error(f"Erro ao processar imagem: {str(e)}")
+        return None
+
+def estruturar_dados(texto):
+    """
+    Converte o texto extraído em DataFrame
+    """
+    linhas = texto.strip().split('\n')
+    itens = []
+    
+    for linha in linhas:
+        if not linha.strip():
+            continue
         
-        # Lista para armazenar os itens processados
-        itens = []
-        
-        # Processa cada linha
-        for linha in texto.split('\n'):
-            if not linha.strip():  # Ignora linhas vazias
-                continue
-            
-            try:
-                # Separa quantidade do resto
-                partes = linha.split('.')
-                if len(partes) < 2:
-                    continue
-                    
+        try:
+            # Assume que a quantidade está no início da linha
+            partes = linha.split('.')
+            if len(partes) >= 2:
                 quantidade = partes[0].strip()
-                # Remove caracteres não numéricos da quantidade
-                quantidade = ''.join(c for c in quantidade if c.isdigit())
-                
-                # Resto da linha é o item com especificações
                 descricao = '.'.join(partes[1:]).strip()
                 
-                # Adiciona à lista de itens
                 itens.append({
                     'Quantidade': quantidade,
                     'Descrição': descricao
                 })
-                
-            except Exception as e:
-                st.warning(f"Erro ao processar linha: {linha}")
-                continue
-        
-        return pd.DataFrame(itens)
+        except Exception as e:
+            st.warning(f"Erro ao processar linha: {linha}")
+            continue
     
-    except Exception as e:
-        st.error(f"Erro ao processar imagem: {str(e)}")
-        return None
+    return pd.DataFrame(itens)
 
 def criar_excel(df):
     """
@@ -79,51 +101,40 @@ def main():
     # CSS para remover elementos da interface do Streamlit
     st.markdown("""
         <style>
-        /* Esconde os ícones do topo direito */
+        /* Esconde os elementos da interface */
         section[data-testid="stSidebar"] > div {
             display: none;
         }
-
-        /* Esconde o menu superior direito completo */
-        .menu {
+        .menu, .stActionButton, .stDeployButton, footer, .stToolbar {
             display: none !important;
         }
-
-        /* Esconde os botões de ação no topo */
-        .stActionButton, .stDeployButton {
-            display: none !important;
-        }
-
-        /* Esconde o Manage app no rodapé */
-        footer {
-            display: none !important;
-        }
-
-        /* Remove a barra de ferramentas superior */
-        .stToolbar {
-            display: none !important;
-        }
-
-        /* Esconde elementos específicos do header */
         [data-testid="stHeader"] {
             display: none !important;
         }
-
-        /* Reduz o espaço superior */
         .block-container {
             padding-top: 2rem !important;
         }
-
-        /* Esconde elementos do Streamlit */
-        .viewerBadge_container__1QSob {
-            display: none !important;
-        }
-        
-        .st-emotion-cache-1rs6os {
+        .viewerBadge_container__1QSob, .st-emotion-cache-1rs6os {
             display: none !important;
         }
         </style>
     """, unsafe_allow_html=True)
+
+    # Instruções de uso
+    with st.expander("ℹ️ Como usar", expanded=False):
+        st.markdown("""
+            **Como usar o sistema:**
+            1. Clique em 'Browse files' ou arraste uma imagem
+            2. Aguarde o upload da imagem
+            3. Clique em 'Processar Imagem'
+            4. Verifique e edite os dados se necessário
+            5. Clique em 'Baixar Excel' para salvar
+            
+            **Observações:**
+            - A imagem deve estar legível
+            - Formatos suportados: PNG, JPG
+            - Você pode editar os dados antes de baixar
+            """)
 
     # Área de upload
     st.header("1. Selecione a imagem da lista")
@@ -137,11 +148,14 @@ def main():
         # Mostra a imagem
         st.image(imagem, caption="Imagem carregada", use_column_width=True)
         
+        # Inicializa cliente OpenAI
+        client = init_openai()
+        
         # Botão para processar
         if st.button("Processar Imagem"):
             with st.spinner('Processando imagem...'):
                 # Processa a imagem
-                df = processar_imagem(imagem)
+                df = processar_imagem_com_openai(client, imagem)
                 
                 if df is not None and not df.empty:
                     st.session_state.dados_extraidos = df
@@ -150,7 +164,7 @@ def main():
                     st.error('❌ Erro ao processar imagem. Tente novamente.')
         
         # Mostra resultados se houver dados processados
-        if st.session_state.dados_extraidos is not None:
+        if hasattr(st.session_state, 'dados_extraidos') and st.session_state.dados_extraidos is not None:
             st.header("2. Resultados Extraídos")
             
             # Mostra tabela editável
@@ -168,22 +182,6 @@ def main():
                 file_name="lista_extraida.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-    
-    # Instruções de uso
-    with st.expander("ℹ️ Como usar", expanded=False):
-        st.markdown("""
-            **Como usar o sistema:**
-            1. Clique em 'Browse files' ou arraste uma imagem
-            2. Aguarde o upload da imagem
-            3. Clique em 'Processar Imagem'
-            4. Verifique e edite os dados se necessário
-            5. Clique em 'Baixar Excel' para salvar
-            
-            **Observações:**
-            - A imagem deve estar legível
-            - Formatos suportados: PNG, JPG
-            - Você pode editar os dados antes de baixar
-            """)
 
 if __name__ == "__main__":
     main()
