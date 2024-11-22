@@ -14,9 +14,21 @@ st.set_page_config(
 
 # Configuração do OpenAI
 def init_openai():
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-    return client
-
+    """
+    Inicializa o cliente OpenAI com a chave da API
+    """
+    try:
+        if 'OPENAI_API_KEY' not in st.secrets:
+            st.error('Chave da API OpenAI não encontrada nos secrets!')
+            st.stop()
+            
+        return OpenAI(
+            api_key=st.secrets['OPENAI_API_KEY']
+        )
+    except Exception as e:
+        st.error(f"Erro ao inicializar OpenAI: {str(e)}")
+        st.stop()
+        
 def processar_imagem_com_openai(client, imagem):
     """
     Usa a API da OpenAI para extrair texto da imagem
