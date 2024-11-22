@@ -5,3 +5,4 @@ pandas
 opencv-python-headless
 pdf2image
 openpyxl
+openai
