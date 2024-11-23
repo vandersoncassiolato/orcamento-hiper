@@ -18,22 +18,36 @@ def init_openai():
     Inicializa o cliente OpenAI com a chave da API
     """
     try:
-        # Debug: mostrar se consegue acessar os secrets
-        st.write("Secrets disponíveis:", list(st.secrets.keys()))
+        # Debug para ver os secrets disponíveis
+        print("Secrets disponíveis:", st.secrets)
         
-        if 'OPENAI_API_KEY' not in st.secrets:
-            st.error('Chave da API OpenAI não encontrada nos secrets!')
-            st.write("Por favor, verifique se a chave foi salva corretamente nos secrets com o nome 'OPENAI_API_KEY'")
+        # Tenta pegar a chave de várias formas
+        api_key = None
+        if 'OPENAI_API_KEY' in st.secrets:
+            api_key = st.secrets['OPENAI_API_KEY']
+        elif 'openai' in st.secrets:
+            api_key = st.secrets['openai']['api_key']
+        else:
+            # Tenta ler diretamente do arquivo
+            try:
+                with open('.streamlit/secrets.toml', 'r') as f:
+                    for line in f:
+                        if line.startswith('OPENAI_API_KEY'):
+                            api_key = line.split('=')[1].strip().strip('"')
+                            break
+            except Exception as e:
+                st.error(f"Erro ao ler arquivo secrets.toml: {e}")
+
+        if api_key is None:
+            st.error("Não foi possível encontrar a chave da API OpenAI")
+            st.write("Conteúdo dos secrets:", st.secrets)
             st.stop()
-        
-        # Debug: mostrar parte da chave (segura)
-        api_key = st.secrets['OPENAI_API_KEY']
-        st.write("Primeiros caracteres da chave:", api_key[:10] + "...")
-        
+            
         return OpenAI(api_key=api_key)
+    
     except Exception as e:
         st.error(f"Erro ao inicializar OpenAI: {str(e)}")
-        st.write("Detalhes completos do erro para debug:", str(e))
+        st.write("Detalhes do erro:", str(e))
         st.stop()
         
 def processar_imagem_com_openai(client, imagem):
