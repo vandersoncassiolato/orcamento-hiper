@@ -17,13 +17,21 @@ def init_claude():
     Inicializa o cliente Claude
     """
     try:
+        # Debug para ver os secrets disponíveis
+        st.write("Debug - Secrets disponíveis:", list(st.secrets.keys()))
+        
         if 'CLAUDE_API_KEY' not in st.secrets:
-            st.error('Chave da API Claude não encontrada!')
-            st.stop()
-        return Anthropic(api_key=st.secrets['CLAUDE_API_KEY'])
+            st.error('Chave da API Claude não encontrada nos secrets!')
+            return None
+            
+        api_key = st.secrets['CLAUDE_API_KEY']
+        st.write("Debug - Primeiros caracteres da chave:", api_key[:10])
+        
+        return Anthropic(api_key=api_key)
     except Exception as e:
         st.error(f"Erro ao inicializar Claude: {str(e)}")
-        st.stop()
+        st.write("Debug - Erro completo:", str(e))
+        return None
 
 def processar_imagem_com_claude(client, imagem):
     """
