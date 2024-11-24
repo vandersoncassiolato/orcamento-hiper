@@ -29,24 +29,21 @@ def init_claude():
         st.stop()
 
 def processar_imagem_com_claude(client, imagem):
-    """
-    Usa a API do Claude para extrair texto da imagem
-    """
     try:
         # Converte a imagem para base64
         buffered = io.BytesIO()
         Image.open(imagem).save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode()
 
-        message = client.messages.create(
+        # Cria a mensagem no formato correto
+        response = client.messages.create(
             model="claude-3-opus-20240229",
-            max_tokens=1000,
             messages=[{
                 "role": "user",
                 "content": [
                     {
                         "type": "text",
-                        "text": "Nesta imagem há uma lista de itens com quantidades. Por favor extraia as quantidades e descrições no formato: quantidade e item. Retorne apenas os dados extraídos, sem comentários adicionais."
+                        "text": "Analise esta imagem e extraia a quantidade e descrição de cada item, no formato: quantidade e descrição. Retorne apenas os dados."
                     },
                     {
                         "type": "image",
@@ -60,11 +57,12 @@ def processar_imagem_com_claude(client, imagem):
             }]
         )
 
-        texto_extraido = message.content[0].text
-        return estruturar_dados(texto_extraido)
+        st.write("Debug - Resposta Claude:", response)  # Debug
+        return estruturar_dados(response.content[0].text)
 
     except Exception as e:
         st.error(f"Erro ao processar imagem: {str(e)}")
+        st.write("Erro completo:", str(e))
         return None
 
 def estruturar_dados(texto):
