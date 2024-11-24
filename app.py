@@ -17,10 +17,9 @@ def init_claude():
     Inicializa o cliente Claude
     """
     try:
-        if 'CLAUDE_API_KEY' not in st.secrets:
-            st.error('Chave da API Claude não encontrada!')
-            st.stop()
-        return Anthropic(api_key=st.secrets['CLAUDE_API_KEY'])
+        # APENAS PARA TESTE - NÃO USE ISSO EM PRODUÇÃO
+        api_key = "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"
+        return Anthropic(api_key=api_key)
     except Exception as e:
         st.error(f"Erro ao inicializar Claude: {str(e)}")
         st.stop()
