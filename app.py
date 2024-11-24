@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
+from anthropic import Anthropic
 import io
 import base64
-from openai import OpenAI
 from PIL import Image
 
 # Configuração da página
@@ -12,77 +12,52 @@ st.set_page_config(
     layout="wide"
 )
 
-# Configuração do OpenAI
-def init_openai():
+def init_claude():
     """
-    Inicializa o cliente OpenAI com a chave da API
+    Inicializa o cliente Claude
     """
     try:
-        # Debug para ver os secrets disponíveis
-        print("Secrets disponíveis:", st.secrets)
-        
-        # Tenta pegar a chave de várias formas
-        api_key = None
-        if 'OPENAI_API_KEY' in st.secrets:
-            api_key = st.secrets['OPENAI_API_KEY']
-        elif 'openai' in st.secrets:
-            api_key = st.secrets['openai']['api_key']
-        else:
-            # Tenta ler diretamente do arquivo
-            try:
-                with open('.streamlit/secrets.toml', 'r') as f:
-                    for line in f:
-                        if line.startswith('OPENAI_API_KEY'):
-                            api_key = line.split('=')[1].strip().strip('"')
-                            break
-            except Exception as e:
-                st.error(f"Erro ao ler arquivo secrets.toml: {e}")
-
-        if api_key is None:
-            st.error("Não foi possível encontrar a chave da API OpenAI")
-            st.write("Conteúdo dos secrets:", st.secrets)
+        if 'CLAUDE_API_KEY' not in st.secrets:
+            st.error('Chave da API Claude não encontrada!')
             st.stop()
-            
-        return OpenAI(api_key=api_key)
-    
+        return Anthropic(api_key=st.secrets['CLAUDE_API_KEY'])
     except Exception as e:
-        st.error(f"Erro ao inicializar OpenAI: {str(e)}")
-        st.write("Detalhes do erro:", str(e))
+        st.error(f"Erro ao inicializar Claude: {str(e)}")
         st.stop()
-        
-def processar_imagem_com_openai(client, imagem):
+
+def processar_imagem_com_claude(client, imagem):
     """
-    Usa a API da OpenAI para extrair texto da imagem
+    Usa a API do Claude para extrair texto da imagem
     """
     try:
         # Converte a imagem para base64
-        image = Image.open(imagem)
         buffered = io.BytesIO()
-        image.save(buffered, format="PNG")
+        Image.open(imagem).save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode()
 
-        response = client.chat.completions.create(
-            model="gpt-4-vision-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Esta é uma lista de itens com quantidades. Por favor, extraia para cada linha: a quantidade e a descrição do item. Retorne em formato estruturado."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": f"data:image/png;base64,{img_str}"
+        message = client.messages.create(
+            model="claude-3-opus-20240229",
+            max_tokens=1000,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Nesta imagem há uma lista de itens com quantidades. Por favor extraia as quantidades e descrições no formato: quantidade e item. Retorne apenas os dados extraídos, sem comentários adicionais."
+                    },
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": img_str
                         }
-                    ]
-                }
-            ],
-            max_tokens=1000
+                    }
+                ]
+            }]
         )
 
-        # Processa a resposta da API
-        texto_extraido = response.choices[0].message.content
+        texto_extraido = message.content[0].text
         return estruturar_dados(texto_extraido)
 
     except Exception as e:
@@ -101,7 +76,6 @@ def estruturar_dados(texto):
             continue
         
         try:
-            # Assume que a quantidade está no início da linha
             partes = linha.split('.')
             if len(partes) >= 2:
                 quantidade = partes[0].strip()
@@ -128,32 +102,21 @@ def criar_excel(df):
     return output
 
 def main():
-    # Título e descrição
     st.title("📊 Extrator de Lista para Excel")
     
-    # CSS para remover elementos da interface do Streamlit
+    # CSS para interface limpa
     st.markdown("""
         <style>
-        /* Esconde os elementos da interface */
-        section[data-testid="stSidebar"] > div {
-            display: none;
-        }
-        .menu, .stActionButton, .stDeployButton, footer, .stToolbar {
-            display: none !important;
-        }
-        [data-testid="stHeader"] {
-            display: none !important;
-        }
-        .block-container {
-            padding-top: 2rem !important;
-        }
-        .viewerBadge_container__1QSob, .st-emotion-cache-1rs6os {
-            display: none !important;
-        }
+        section[data-testid="stSidebar"] > div {display: none;}
+        .menu {display: none !important;}
+        .stActionButton, .stDeployButton, footer, .stToolbar {display: none !important;}
+        [data-testid="stHeader"] {display: none !important;}
+        .block-container {padding-top: 2rem !important;}
+        .viewerBadge_container__1QSob, .st-emotion-cache-1rs6os {display: none !important;}
         </style>
     """, unsafe_allow_html=True)
 
-    # Instruções de uso
+    # Instruções
     with st.expander("ℹ️ Como usar", expanded=False):
         st.markdown("""
             **Como usar o sistema:**
@@ -169,7 +132,7 @@ def main():
             - Você pode editar os dados antes de baixar
             """)
 
-    # Área de upload
+    # Upload
     st.header("1. Selecione a imagem da lista")
     imagem = st.file_uploader(
         "Escolha uma imagem",
@@ -178,17 +141,13 @@ def main():
     )
     
     if imagem:
-        # Mostra a imagem
         st.image(imagem, caption="Imagem carregada", use_column_width=True)
         
-        # Inicializa cliente OpenAI
-        client = init_openai()
+        client = init_claude()
         
-        # Botão para processar
         if st.button("Processar Imagem"):
             with st.spinner('Processando imagem...'):
-                # Processa a imagem
-                df = processar_imagem_com_openai(client, imagem)
+                df = processar_imagem_com_claude(client, imagem)
                 
                 if df is not None and not df.empty:
                     st.session_state.dados_extraidos = df
@@ -196,18 +155,15 @@ def main():
                 else:
                     st.error('❌ Erro ao processar imagem. Tente novamente.')
         
-        # Mostra resultados se houver dados processados
         if hasattr(st.session_state, 'dados_extraidos') and st.session_state.dados_extraidos is not None:
             st.header("2. Resultados Extraídos")
             
-            # Mostra tabela editável
             df_editado = st.data_editor(
                 st.session_state.dados_extraidos,
                 num_rows="dynamic",
                 use_container_width=True
             )
             
-            # Botão para baixar Excel
             excel_buffer = criar_excel(df_editado)
             st.download_button(
                 label="📥 Baixar Excel",
